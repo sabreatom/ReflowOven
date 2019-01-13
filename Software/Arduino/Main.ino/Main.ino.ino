@@ -88,6 +88,12 @@ IPAddress master_ip;
 unsigned int master_port;
 
 //-------------------------------------------
+//Reservation release timeout:
+//-------------------------------------------
+
+#define OVEN_RESERVE_TIMEOUT_MSEC     10000 //10 sec
+
+//-------------------------------------------
 
 void setup() {
   
@@ -114,12 +120,15 @@ void setup() {
 }
 
 void loop() {
+  bool packet_received = false;
+  
   //read temperature:
   double temperature = thermocouple.readCelsius();
 
   //check if command received:
   int packetSize = Udp.parsePacket();
   if (packetSize) {
+    packet_received = true;
     Udp.read(packet_rx_buffer, _RX_PACKET_MAX_SIZE);
 
     switch (packet_rx_buffer[PCKT_CMD_OFFSET]){ //check command opcode
@@ -178,6 +187,24 @@ void loop() {
     Udp.endPacket();
   }
 
+  //Reservation timeout logic:
+  unsigned long last_pckt_rcvd_msec;
+  if (oven_reserved) {
+    if (packet_received){
+      packet_received = false;
+      last_pckt_rcvd_msec = millis();
+    }
+    else{
+      if ((millis() - last_pckt_rcvd_msec) > OVEN_RESERVE_TIMEOUT_MSEC){
+        Serial.println("Oven reservation timeout occured, releasing reservation.");
+        oven_reserved = false;
+        if (digitalRead(HEATER_CNTRL_PIN)){
+          HEATER_OFF;
+        }
+      }
+    }
+  }
+  
   //safety logic:
   if ((!oven_reserved) && (digitalRead(HEATER_CNTRL_PIN))){ //if oven not reserved and heater is still on then disable it
     HEATER_OFF;
