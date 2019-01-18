@@ -80,4 +80,5 @@ class RelfowEmulator:
                 
 if __name__ == "__main__":
     # execute only if run as a script
-    main()
+    inst = RelfowEmulator('127.0.0.1', 9000, 9001)
+    inst.run()
