@@ -9,6 +9,12 @@
 #include <EthernetUdp.h>
 
 //-------------------------------------------
+//Build configs:
+//-------------------------------------------
+
+#define ENABLE_TIMEOUT
+
+//-------------------------------------------
 //pin definition:
 //-------------------------------------------
 
@@ -51,7 +57,8 @@ EthernetUDP Udp;
 //UDP packet command opcode definitions:
 #define HEATER_CONTROL_CMD            0x01
 #define OVEN_CONTROL_RESERVE_CMD      0x02
-#define OVEN_CONTROL_RELEASE_CMD     0x03
+#define OVEN_CONTROL_RELEASE_CMD      0x03
+#define REQUEST_STATUS_CMD            0x04
 
 //UDP packet offset definitions:
 #define PCKT_CMD_OFFSET               0
@@ -121,6 +128,7 @@ void setup() {
 
 void loop() {
   bool packet_received = false;
+  int temp_trunc;
   
   //read temperature:
   double temperature = thermocouple.readCelsius();
@@ -170,24 +178,24 @@ void loop() {
           }
         }
         break;
+      case REQUEST_STATUS_CMD:
+        Serial.println("Received status request command.");
+        Udp.beginPacket(master_ip, master_port);
+        temp_trunc = (int)temperature;
+        packet_tx_buffer[STATUS_TEMP_MSB_OFFSET] = ((temp_trunc & 0xFF00) > 8);
+        packet_tx_buffer[STATUS_TEMP_LSB_OFFSET] = temp_trunc & 0xFF;
+        packet_tx_buffer[STATUS_HEATER_STATE_OFFSET] = digitalRead(HEATER_CNTRL_PIN);
+        Udp.write(packet_tx_buffer, _TX_PACKET_MAX_SIZE);
+        Udp.endPacket();
+        break;
       default:
         Serial.println("Received unknown command.");
         break;
     }
   }
 
-  //send status packet if reserved:
-  if (oven_reserved){ //send status only when oven is reserved
-    Udp.beginPacket(master_ip, master_port);
-    int temp_trunc = (int)temperature;
-    packet_tx_buffer[STATUS_TEMP_MSB_OFFSET] = ((temp_trunc & 0xFF00) > 8);
-    packet_tx_buffer[STATUS_TEMP_LSB_OFFSET] = temp_trunc & 0xFF;
-    packet_tx_buffer[STATUS_HEATER_STATE_OFFSET] = digitalRead(HEATER_CNTRL_PIN);
-    Udp.write(packet_tx_buffer, _TX_PACKET_MAX_SIZE);
-    Udp.endPacket();
-  }
-
   //Reservation timeout logic:
+#ifdef ENABLE_TIMEOUT
   unsigned long last_pckt_rcvd_msec;
   if (oven_reserved) {
     if (packet_received){
@@ -204,6 +212,7 @@ void loop() {
       }
     }
   }
+#endif
   
   //safety logic:
   if ((!oven_reserved) && (digitalRead(HEATER_CNTRL_PIN))){ //if oven not reserved and heater is still on then disable it
